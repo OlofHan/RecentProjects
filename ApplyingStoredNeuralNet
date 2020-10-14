@@ -1,0 +1,309 @@
+import numpy as np
+import os
+import pandas as pd
+import xlsxwriter as xlwr
+import xlrd
+
+'''
+
+############################### DEFINITIONER #################################
+
+
+'''
+
+def relu(input):
+    
+    return(max(0.0, input))
+
+
+def sigmoid(input):
+
+    if input >= 0:
+        
+        return 1/(1 + np.exp(-input))
+
+    else:
+
+        return np.exp(input)/(1 + np.exp(input))
+
+
+class Layer:
+    
+    def __init__(self, kernel, bias, activation):
+        
+        self.kernel = kernel
+        self.bias = bias
+        self.activation = activation
+        #kernel:(input x nNeurons)
+
+    
+    def forward(self, input):
+        
+        #input väntas som en (1 x nInput) np.arr, ger tillbaka en np.array med out
+        
+        if not type(self.kernel[0]) == np.float64:
+            
+            '''
+            #lagret har flera neuroner att beräkna -> dolt lager
+            '''
+            
+            for j in range(len(self.kernel[0])):
+                
+                #räkna ut neuroners output
+                
+                res_neuron = 0
+                
+                for i in range(len(input)):
+                    
+                    res_neuron += input[i] * self.kernel[i][j]
+                
+                res_neuron += self.bias[j]
+                
+                if self.activation == 'relu':
+                    
+                    neuron_output = relu(res_neuron)
+                
+                elif self.activation == 'sigmoid':
+                    
+                    neuron_output = sigmoid(res_neuron)
+                
+                else:
+                    
+                    print('Ogiltig aktiveringsfunktion angiven, välj mellan relu och sigmoid')
+                    
+                    break
+                
+                #ge output som np.ndarray
+                
+                if j == 0:
+                    
+                    output = np.array((neuron_output))
+                
+                else:
+                    
+                    output = np.hstack([output, neuron_output])
+                    
+        
+        else:
+            
+            '''
+            #Lagret har bara en neuron (outputlager)
+            '''
+            
+            res_neuron = 0
+            
+            for i in range(len(input)):
+                       
+                res_neuron += input[i] * self.kernel[i]
+
+            res_neuron += self.bias
+            
+            if self.activation == 'relu':
+                                    
+                neuron_output = relu(res_neuron)
+                
+            elif self.activation == 'sigmoid':
+                        
+                neuron_output = sigmoid(res_neuron)
+                
+            else:
+                    
+                print('Ogiltig aktiveringsfunktion angiven, välj mellan relu och sigmoid')
+                
+            output = np.array((neuron_output))
+        
+        return output
+    
+    
+class Network:
+    
+    def __init__(self, list_of_layers):
+        
+        self.layers = list_of_layers
+    
+    def forward(self, input):
+        
+        c_layer = 0
+        
+        for layer in self.layers:
+
+            if c_layer == 0:
+                
+                out = layer.forward(input)
+            
+            else:
+                
+                out = layer.forward(out)
+            
+            c_layer += 1
+        
+        return out
+
+
+class Output:
+    
+    def __init__(self, varkod, series, pred):
+        
+        self.varkod = varkod
+        self.series = series
+        self.pred = pred
+
+'''
+
+############################ IMPORTERA MODELLER ################################
+
+
+'''
+
+blue_path = 'PATH_STRUKEN_HÄR'
+red_path = 'PATH_STRUKEN_HÄR'
+yellow_path = 'PATH_STRUKEN_HÄR'
+green_path = 'PATH_STRUKEN_HÄR'
+cyan_path = 'PATH_STRUKEN_HÄR'
+
+
+def read_model(list_of_layers, path):
+    
+    mem = '-1'
+    
+    for file in os.listdir(path):
+        
+        filepath = path + file.title()
+        
+        nlayer = file.title().split(sep='_')[0]
+        
+        if 'Kernel' in file.title():
+            
+            kernel = np.loadtxt(filepath, delimiter =',')
+            #print(kernel)
+            
+        if 'Bias' in file.title():
+            
+            bias = np.loadtxt(filepath, delimiter = ',')
+        
+        if mem == nlayer:
+            #kompilera ett layer om både bias och kernel har lästs in
+            
+            if not '3' in file.title():
+              #Ej output-lager
+            
+                layer = Layer(kernel, bias, 'relu')
+        
+            else:
+            
+                layer = Layer(kernel, bias, 'sigmoid')
+        
+            list_of_layers.append(layer)
+        
+        mem = file.title().split(sep='_')[0]
+
+
+red_list = []
+blue_list = []
+yellow_list = []
+green_list = []
+cyan_list = []
+
+read_model(red_list, red_path)
+read_model(yellow_list, yellow_path)
+read_model(green_list, green_path)
+read_model(blue_list, blue_path)
+read_model(cyan_list, cyan_path)
+
+
+NW_red = Network(red_list)
+NW_blue = Network(blue_list)
+NW_yellow = Network(yellow_list)
+NW_green = Network(green_list)
+NW_cyan = Network(cyan_list)
+
+
+'''
+
+################## IMPORTERA TILLVÄXTTAKTER #####################
+
+'''
+
+tvxlist = []
+
+xlbk = xlrd.open_workbook('PATH_STRUKEN_HÄR')
+
+sh = xlbk.sheet_by_index(0)
+
+for i in range(sh.nrows):
+    
+    tvxlist.append(sh.cell_value(i,0))
+
+
+'''
+
+################## IMPORTERA DATA #####################
+
+'''
+
+data = pd.read_csv('Inputs.csv')
+
+data = data.drop(['Unnamed: 0'], axis = 1)
+
+series = pd.read_csv('Stock_series.csv')
+
+series.index = series['RapportDatum']
+
+series = series.drop(['RapportDatum'], axis = 1)
+
+'''
+
+################## APPLICERA TILLBÖRLIGT NÄTVERK #####################
+
+'''
+
+output = []
+
+for var in series:
+    
+    if var in tvxlist:
+             
+        output.append(Output(var, series[var], NW_red.forward(data[var])))
+    
+    else:
+        
+        if series[var].abs().max() <= 500_000_000:
+            
+            output.append(Output(var, series[var], NW_cyan.forward(data[var])))
+        
+        elif series[var].abs().max() >= 500_000_000 and series[var].abs().max() <= 1_000_000_000:
+            
+            output.append(Output(var, series[var], NW_blue.forward(data[var])))
+        
+        elif series[var].abs().max() >= 1_000_000_000 and series[var].abs().max() <= 50_000_000_000:
+
+            output.append(Output(var, series[var], NW_green.forward(data[var])))
+        
+        else:
+            
+            output.append(Output(var, series[var], NW_yellow.forward(data[var])))
+        
+
+
+'''
+
+################## SKRIV OUTPUT #####################
+
+'''
+
+
+wb = xlwr.Workbook('Outbook.xlsx')
+sh = wb.add_worksheet()
+
+written = 1
+
+for i in range(len(output)):
+    sh.write(0,i,output[i].varkod)
+    written = 1
+    for j in output[i].series:
+        sh.write(written, i, j)
+        written = written + 1
+        
+    sh.write(written, i, output[i].pred)
+
+wb.close()
