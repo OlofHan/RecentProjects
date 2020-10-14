@@ -1,0 +1,334 @@
+'''
+
+Validering av intern konsistens inom ett dataset för ett ämneslag utifrån ett givet Excel-dokument med relationer som väntas gälla
+
+'''
+
+
+import pandas as pd
+import numpy as np
+import pyodbc
+import xlrd
+import xlsxwriter as xlwr
+
+
+'''
+
+############ DEFINITIONER ############
+
+'''
+        
+class Control:
+    
+    def __init__(self, name, sheet_of_origin):
+        
+        self.RUTSsv = []
+        self.Comp = []
+        #lagra listor med värden
+        
+        self.RUTSsv_operators = []
+        self.Comp_operators = []
+        #lagra listor med operander för respektive varkod
+        
+        self.RUTSsv_koder = []
+        self.Comp_koder = []
+        #lagra listor med koder, för output endast
+        
+        self.Equality = None
+        #lagra (o)likheten för jämförelsen
+        
+        self.Name = name
+        #ID för kontrollen, radnummer på första element
+        
+        self.Sheet = sheet_of_origin
+        #vilket blad kommer kontrollen ifrån?
+        
+    def compute(self):
+        #Returnerar sanningsvärdet för om kontrollen slår
+        
+        RUTSsv_sum = 0
+        Comp_sum = 0
+        
+        for i in range(len(self.RUTSsv)):
+            
+            if self.RUTSsv_operators[i] == '+':
+                
+                RUTSsv_sum += self.RUTSsv[i]
+            
+            elif self.RUTSsv_operators[i] == '-':
+                
+                RUTSsv_sum -= self.RUTSsv[i]
+            
+            else:
+                
+                print('kontroll ', self.Name, ' innefattar operatorer andra än + och -, kika på dessa')
+                
+        for i in range(len(self.Comp)):
+            
+            if self.Comp_operators[i] =='+':
+                
+                Comp_sum += self.Comp[i]
+            
+            elif self.Comp_operators[i] == '-':
+                
+                Comp_sum -= self.Comp[i]
+        
+            else:
+                
+                print('kontroll ', self.Name, ' innefattar operatorer andra än + och -, kika på dessa')
+                
+        if self.Equality == '=':
+            
+            if abs(RUTSsv_sum - Comp_sum) >= 100_000_000:
+                
+                return False 
+            
+            return True
+        
+        elif self.Equality == '≥':
+            
+            if not RUTSsv_sum - Comp_sum >= -100_000_000:
+                
+                return False
+            
+            return True
+        
+        elif self.Equality == '≤':
+            
+            if not RUTSsv_sum - Comp_sum <= 100_000_000:
+                
+                return False
+            
+            return True
+        
+        else:
+            
+            print('kontrollens (o)likhetstecken känns inte igen: ', self.Equality)
+        
+        #Vill vi ha någon tillåten felmarginal för avstämningarna?
+        
+
+def find_segment(argrow, argsh):
+    
+    #returnerar(förstarad, sistarad) av kontrollsegment
+    
+    end_row_found = False
+    
+    crow = argrow + 1
+    
+    operators = ['=', '≥', '≤']
+    
+    while not end_row_found:
+        
+        if crow == argsh.nrows-1:
+            #xlrd nollindexerar, men räknar nrows som len
+            end_row_found = True
+            
+            return (argrow,crow)
+        
+        
+        if not argsh.cell_value(crow, 6) in operators:
+            
+            crow += 1
+        
+        else:
+            
+            crow -= 1
+            
+            end_row_found = True
+    
+    
+    return (argrow,crow)
+
+
+def add_segment(rowinit, rowend, argsh, RUTSdf, Compdf):
+    
+    ctrl = Control(rowinit, argsh.name)
+    
+    ops = ['+','-']
+    
+    ctrl.Equality = argsh.cell_value(rowinit, 6)
+    
+    for i in range(rowinit, rowend + 1):
+        
+        if argsh.cell_value(i,2) in ops:
+            #RUTSsv har en rad som ska in i kontrollen
+            varkod  = argsh.cell_value(i, 5)
+            
+            if varkod in RUTSdf:
+                #träff i data, mappa in i kontrollen
+                dp = RUTSdf[varkod]
+                sign = argsh.cell_value(i,2)
+            
+                ctrl.RUTSsv.append(dp)
+                ctrl.RUTSsv_koder.append(varkod)
+                ctrl.RUTSsv_operators.append(sign)
+        
+        if argsh.cell_value(i,7) in ops:
+            #Comp har en rad som ska in i kontrollen
+            varkod = argsh.cell_value(i, 10)
+            
+            if varkod in Compdf:
+                #träff i data, mappa in i kontrollen
+                dp = Compdf[varkod]
+                sign = argsh.cell_value(i,7)
+            
+                ctrl.Comp.append(dp)
+                ctrl.Comp_koder.append(varkod)
+                ctrl.Comp_operators.append(sign)
+    
+    return ctrl
+
+
+def nordic_to_int(arg):
+    #SQL-databasen har "," som avskiljare
+    ret = arg.replace(',','.')
+    return ret
+
+def to_float(arg):
+    return float(arg)        
+
+
+
+'''
+
+############### DATAINLÄSNING #################
+
+'''
+
+
+RUTSdf = pd.Series(dtype=float)
+Compdf = pd.Series(dtype=float)
+
+server = 'STRUKEN'
+db = 'STRUKEN'
+driver = '{SQL Server}'
+
+koppling = pyodbc.connect('DRIVER='+ driver+';'+
+                          'SERVER='+server+';'+
+                          'DATABASE='+db+';'+
+                          'TRUSTED_CONNECTION=YES')
+
+sep = ""
+
+qfile_RUTS = open('fråga_RUTS.txt','r+')
+qfile_MFI = open('fråga_MFI.txt', 'r+')
+
+llines_RUTS = qfile_RUTS.readlines()
+llines_MFI = qfile_MFI.readlines()
+
+query_RUTS = sep.join(llines_RUTS)
+query_MFI = sep.join(llines_MFI)
+
+RUTSSQL = pd.read_sql(query_RUTS, koppling)
+MFISQL = pd.read_sql(query_MFI, koppling)
+
+RUTSSQL['Varde'] = RUTSSQL['Varde'].apply(nordic_to_int)
+RUTSSQL['Varde'] = RUTSSQL['Varde'].apply(to_float)
+
+MFISQL['Varde'] = MFISQL['Varde'].apply(nordic_to_int)
+MFISQL['Varde'] = MFISQL['Varde'].apply(to_float)
+
+for index in RUTSSQL.index:
+    
+    var = RUTSSQL['VariabelVardeKod'].iloc[index]
+    val = RUTSSQL['Varde'].iloc[index]
+    
+    RUTSdf[var] = val
+
+
+for index in MFISQL.index:
+    
+    var = MFISQL['VariabelVardeKod'].iloc[index]
+    val = MFISQL['Varde'].iloc[index]
+    
+    Compdf[var] = val
+
+
+'''
+
+############ IMPORT AV KONTROLLER ############
+
+'''
+
+wb = xlrd.open_workbook('kontroller.xlsx')
+nfail = 0
+nsuccess = 0
+controls = []
+failures = []
+
+def get_ctrl_in_sh(list_of_ctrl, sh):
+    
+    operators = ['=', '≥', '≤']
+
+    controls = list_of_ctrl
+
+    for i in range(2, sh.nrows-1):
+    
+        if sh.cell_value(i,6) in operators:
+            
+            lb = find_segment(i, sh)[0]
+            ub = find_segment(i, sh)[1]
+            
+            ctrl = add_segment(lb, ub, sh, RUTSdf, Compdf)
+            
+            controls.append(ctrl)
+
+
+
+
+for i in range(1, wb.nsheets):
+    
+    get_ctrl_in_sh(controls, wb.sheet_by_index(i))
+    
+    
+    
+'''
+
+############# SKICKA OUTPUT, LAGRING #############
+
+'''    
+    
+for i in controls:
+    if not i.compute():
+        failures.append(i)
+        nfail += 1
+    else:
+        if len(i.RUTSsv) >=1 or len(i.Comp) >=1:    
+            nsuccess +=1
+
+
+print('Antal kontroller som lyckas: ', nsuccess)
+print('Antal kontroller som fallerar: ', nfail)
+
+
+wb_out = xlwr.Workbook('Fallerande kontroller.xlsx')
+
+ws_out = wb_out.add_worksheet()
+
+ws_out.write(0, 0, 'Flik från vilken den fallerande kontrollen stammar')
+ws_out.write(0, 1, 'Första Excel-rad som ingår i kontrollen') 
+ws_out.write(0, 2, 'RUTS-koder som ingår i kontrollen') 
+ws_out.write(0, 3, 'MFI/koBIS-koder som ingår i kontrollen')  
+ws_out.write(0, 4, 'Sekvens av operatorer för RUTS-koder') 
+ws_out.write(0, 5, 'Sekvens av operatorer för MFI-/koBIS-koder') 
+
+sep = ', '
+
+for i in range(1, len(failures) + 1):
+    ws_out.write(i,0,failures[i-1].Sheet) 
+    ws_out.write(i,1,failures[i-1].Name + 1) 
+    
+    RUTS_koder = sep.join(failures[i-1].RUTSsv_koder)
+    ws_out.write(i,2,RUTS_koder)
+    
+    MFI_koder =sep.join(failures[i-1].Comp_koder)
+    ws_out.write(i,3,MFI_koder)
+    
+    RUTS_ops = sep.join(failures[i-1].RUTSsv_operators)
+    ws_out.write(i,4,RUTS_ops)
+    
+    MFI_ops = sep.join(failures[i-1].Comp_operators)
+    ws_out.write(i,5,MFI_ops) 
+
+wb_out.close()
