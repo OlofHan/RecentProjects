@@ -1,0 +1,135 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jun 23 10:31:41 2021
+
+@author: SCBOLOH
+"""
+
+'''
+A small module which I wrote as part of a project where we needed to find a more efficient way of correctly translating data from one database/product into another,
+where the target database/product defined data by membership in hierarchical trees. This module serves to create structures holding said hierarchical trees, and methods
+which may be used to find permutations of combinations of parents to a given set of entry-levels in these hierarchical trees.
+'''
+
+
+class tree_node:
+    #Klass för att hålla en arbiträr nod i ett träd.
+    
+    def __init__(self,name, argparent=None):
+        
+        self.parent = argparent
+        self.children = []
+        self.name = name
+    
+    
+    def add_child(self, argchild):
+        
+        self.children.append(argchild)
+        argchild.parent = self
+    
+    def add_parent(self, parent):
+        
+        self.parent = parent
+        parent.children.append(self)
+    
+    
+    def isroot(self):
+        
+        return self.parent == None
+    
+    
+    def isleaf(self):
+        
+        return len(self.children) == 0
+
+
+
+class tree:
+    #Struktur för att hålla ett träd, bestående av tree_nodes. Tänkt att svara mot en dimension i FMR:s struktur
+    
+    def __init__(self, name):
+        
+        self.name = name
+        self.members = {}
+    
+    
+    def add_member(self, tree_node):
+        
+        self.members[tree_node.name]=tree_node
+
+
+def get_parents(tree_node):
+    #Returnera en lista över namnet på noden, samt eventuella föräldrar till noden
+    
+    if tree_node.isroot():
+        
+        return [tree_node.name]
+    
+    else:
+        
+        return [tree_node.name] + get_parents(tree_node.parent)
+
+
+def build_tree(root_node, tree):
+    #Bygg en träd-struktur givet en rot-nod och ett träd-objekt
+    
+    if root_node.isleaf():
+        
+        tree.add_member(root_node)
+    
+    else:
+        
+        tree.add_member(root_node)
+        
+        for child in root_node.children:
+            
+            build_tree(child, tree)
+   
+
+def init_perms(list_of_two_trees):
+    #Hjälpfunktion till get_perms
+    
+    perms = []
+        
+    for key1 in list_of_two_trees[0].members:
+            
+        for key2 in list_of_two_trees[1].members:
+                
+            perms.append(list_of_two_trees[0].members[key1].name + '_' + list_of_two_trees[1].members[key2].name)
+        
+    return perms
+
+
+def perm_add_tree(list_of_perms, tree):
+    #Hjälpfunktion till get_perms
+    
+    perms = []
+    
+    for perm in list_of_perms:
+        
+        for key in tree.members:
+            
+            perms.append(perm + '_' + tree.members[key].name)
+    
+    return perms
+
+
+def get_perms_of_lists(list_of_lists):
+    #Returnerar en lista med möjliga permutationer mellan medlemmar i en lista av listor.
+    
+    if len(list_of_lists) == 2:
+        
+        out = []
+        
+        for ind1 in range(len(list_of_lists[0])):
+            
+            for ind2 in range(len(list_of_lists[1])):
+                
+                out.append(list_of_lists[0][ind1]+'_'+list_of_lists[1][ind2])
+                
+        return out
+    
+    else:
+        sublist = [list_of_lists[0], list_of_lists[1]]
+        first = get_perms_of_lists(sublist)
+        return get_perms_of_lists([first] + list_of_lists[2:])
