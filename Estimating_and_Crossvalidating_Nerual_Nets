@@ -1,0 +1,158 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Sep 15 15:44:32 2020
+
+@author: SCBOLOH
+
+"""
+#Input: Träningsdata transformerad till features
+#Output:Keras-modeller lagrade i .onnx-format
+
+import numpy as np
+import xlrd
+import pandas as pd
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import Dropout
+from sklearn.model_selection import StratifiedKFold
+import matplotlib.pyplot as plt
+import sys
+import keras2onnx
+
+'''
+
+############################### DATALADDNING #################################
+
+'''
+
+def read_data(path):
+    
+    xlbk = xlrd.open_workbook(path)
+    
+    sh = xlbk.sheet_by_index(5)
+    
+    for i in range(1, sh.nrows):
+        
+        tlist = []
+        
+        for j in range(15,25):
+            
+            tlist.append(sh.cell_value(i,j))
+        
+        if i == 1:
+            
+            design = np.array((tlist))
+            
+            dep = np.array([sh.cell_value(i,25)])
+        
+        else:
+            
+            design = np.vstack([design,tlist])
+            
+            dep = np.vstack([dep, [sh.cell_value(i,25)]])
+    
+    return(design,dep)        
+
+
+green_path = Path_edited
+
+design_green = read_data(green_path)[0]
+dep_green = read_data(green_path)[1]
+
+fold = StratifiedKFold(shuffle=True, n_splits=5, random_state=None)
+
+cross_val_scores = []
+confounders = []
+confoundersFN = []
+confoundersFP = []
+FN = 0
+FP = 0
+TP = 0
+
+NW_list = []
+indep_test_list = []
+dep_test_list=[]
+
+for train_indexes, test_indexes in fold.split(design_green, dep_green):
+        
+    indep = design_green[train_indexes]
+    dep = dep_green[train_indexes]
+    
+    indep_test = design_green[test_indexes]
+    dep_test = dep_green[test_indexes]   
+    
+    indep_test_list.append(indep_test)
+    dep_test_list.append(dep_test)
+    
+    NW = Sequential()
+    NW.add(Dense(20, input_dim=10, activation='relu'))
+    NW.add(Dropout(0.2))
+    NW.add(Dense(25, activation='relu'))
+    NW.add(Dropout(0.2))
+    NW.add(Dense(35, activation='relu'))
+    NW.add(Dropout(0.2))
+    NW.add(Dense(25, activation='relu'))
+    NW.add(Dropout(0.2))
+    NW.add(Dense(20, activation='relu'))
+    NW.add(Dropout(0.2))
+    NW.add(Dense(1, activation='sigmoid'))
+
+    #NW.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+    NW.compile(loss='MSE', optimizer='adam', metrics=['accuracy'])
+
+    log = NW.fit(indep, dep, epochs=40, batch_size=32, verbose=1)
+
+    loss = NW.evaluate(indep_test, dep_test, verbose=0)[0]
+    accuracy = NW.evaluate(indep_test, dep_test, verbose=0)[1]
+    
+    print(NW.metrics_names[1], accuracy*100)
+    
+    cross_val_scores.append(accuracy)
+
+    plt.plot(log.history['loss'])
+    plt.draw()
+    
+    NW_list.append(NW)
+    
+
+scores_list = []
+
+for i in range(len(indep_test_list)):
+    
+    Name = '_' + str(i) + '.onnx'
+    Base_Path = Path_edited
+    Full_Name = Base_Path + Name
+    
+    FP = 0
+    FN = 0
+    TP = 0
+    
+    cNW = NW_list[i]
+    cInd = indep_test_list[i]
+    cDep = dep_test_list[i]
+    
+    ONNX_modell = keras2onnx.convert_keras(cNW, debug_mode=1)
+    
+    keras2onnx.save_model(ONNX_modell, Full_Name)
+
+    preds = cNW.predict(cInd)
+    
+    for index in range(len(preds)):
+        if preds[index] >= 0.1 and cDep[index] == 0:
+            FP +=1
+        if preds[index] <=0.1 and cDep[index] == 1:
+            FN +=1
+        if preds[index] >= 0.1 and cDep[index] == 1:
+            TP +=1
+    scores_list.append((FP, FN, TP))
+                
+
+print(np.mean(cross_val_scores), np.std(cross_val_scores))
+print(scores_list)
+
+sys.exit()   
+
+
+
+
