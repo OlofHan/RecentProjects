@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jun 23 14:39:45 2021
+
+@author: SCBOLOH
+"""
+
+#Modul som hämtar data ur en SQL-databas samt json-fil, och upprättar hierarkiska definitioner av datastrukturer med hjälp av de klasser som återfinns i "Hierarchical_data_structure"
+
+
+import pyodbc
+import tree_module_3 as tm
+import pandas as pd
+import sys
+import datetime
+
+class mappning:
+    
+    def __init__(self, node, parent=None):
+        
+        self.node = node
+        self.parent = parent
+
+
+class tree_record:
+    
+    def __init__(self, IdMedlem, ExtId):
+        self.ID = IdMedlem
+        self.ExtID = ExtId
+        
+
+class vinndata:
+    
+    def __init__(self, identitet, value, membersdict, dsddict):
+        
+        self.name = identitet
+        self.value = value
+        self.members = membersdict
+        
+        list_of_parent_lists = []
+        
+        for key in membersdict:
+            
+            parents = tm.get_parents(dsddict[key].members[membersdict[key]])
+            
+            if len(parents)==2:
+                
+                if parents[0]== 'X'  and parents[1] == 'X':
+                    parents = ['X']
+                
+            list_of_parent_lists.append(parents)
+        
+        self.lolparents = list_of_parent_lists
+        self.perms = tm.get_perms_of_lists(self.lolparents)
+    
+
+class fmr_data:
+    
+    def __init__(self, name, value, source):
+        
+        self.name = name
+        self.value = value
+        self.source = [source]
+        
+    
+    def add_source(self,value, source):
+        
+        self.value += value
+        self.source.append(source)
+
+
+#SLUTADE HÄR. DU MÅSTE SÄTTA UPP BILATERALA KOPPLINGAR VID INLÄSNING
+
+def db_slice_to_tree(df, treename):
+    
+    global_master = tm.tree_node('X')
+    bag_of_nodes = {} #Vet inte om samma ID potentiellt måste få distinkta mappningar -> vågar inte använda ett multiset istället för listan här. Testa om prestandaproblem
+    
+    
+    all_nodes = df['ExtId'].unique()
+
+    #ID för alla unika entries i df. Skapa först noder, sätt sedan relationer
+    
+    for name in all_nodes:
+        
+        bag_of_nodes[name]=tm.tree_node(name)
+    
+    #bag_of_nodes är nu ett dictionary med nycklar för alla extern idn kopplade till "clean slate tree nodes"
+    
+    ParentId_to_ExtId = {}    
+    
+    for rowcontainer in df.itertuples():
+        
+        ParentId_to_ExtId[rowcontainer[1]] = rowcontainer[5]
+    
+    #Vi vill kunna nyckla noder per ExtId (det är så de är sparade i bag_of_nodes), men ParentId ligger inte per den nomenklarturen
+    
+    for rowcontainer in df.itertuples():
+
+        cname = rowcontainer[5] #externid, itertuples returnerar en tuple med radens värden, index inkluderat        
+        cnode = bag_of_nodes[cname]  #bag_of_nodes['N12']
+        
+        cparent = rowcontainer[3]
+        
+        if not cparent >= 0: #Det finn ingen registrerad parent till ID:t -> koppla till global master
+            
+            cnode.add_parent(global_master)
+            
+        else:
+            
+            cnode.add_parent(bag_of_nodes[ParentId_to_ExtId[cparent]])
+            
+    #elementen i bag_of_nodes är nu kopplade via sina .parents, .children-attribut
+    
+    ctree = tm.tree(treename)
+    tm.build_tree(global_master, ctree)
+    
+    #ctree är nu ett tm.tree-objekt som håller trädstrukturen definierad av bag_of_nodes
+    
+    return ctree
+    
+    
+'''
+
+############################## READ DB #############################
+
+'''
+
+def db_to_pd():
+    
+    #Req: SQL query (query.txt)
+    #Ret: PD-df (all data)
+    #Inaktiv för tillfället, hämtas från externt lagrad json
+    
+    server = EDITED_OUT
+    db = EDITED_OUT
+    driver = '{SQL Server}'
+    
+    connection = pyodbc.connect('DRIVER='+driver+';'+
+                                'SERVER='+server+';'+
+                                'DATABASE='+db+';'+
+                                'TRUSTED CONNECTION=YES')
+    
+    
+    qfile = open('query.txt', encoding='utf-8')
+    
+    lol = qfile.readlines()
+    
+    query = ''.join(lol)
+    
+    pd.options.display.max_columns = 5
+    dim_frame = pd.read_sql(query, connection)
+    
+    return dim_frame
+
+
+'''
+
+############################### IMPORT JSON ###################
+
+'''
+
+def json_to_pd():
+    
+    dim_frame = pd.read_json('post_lake.json')
+    
+    return dim_frame
+
+'''
+
+############################### BUILD DSD ###########################
+
+'''
+
+def pd_to_dsd(df):
+    
+    dim_dict = {1:'Konto', 2:'Kontoslag', 3: 'Kontopost', 4:'Löptid', 5: 'Ändamål', 6: 'Säkerhet', 7: 'Motpart', 8: 'Värdering', 9:'Sort'}
+    
+    dsd={}
+    
+    for key in dim_dict:
+        
+        df_slice = df[df['IdDimension']== key]
+        #hämtar den de rader ur dim_frame för vilka kolumn 'IdDimension' har nyckelns värde (d.v.s 1, 2, 3..., 8, 9)
+        
+        dsd[dim_dict[key]] = db_slice_to_tree(df_slice, dim_dict[key])
+    
+    return dsd
+      
+    #Exempel: tm.get_parents(dsd['Konto'].members['5']) håller nu en lista över de noder som "aktiveras" av Konto 5: noden själv samt dess föräldrar inom trädet
+
+
+
+def main():
+    
+    df = json_to_pd()
+    dsd = pd_to_dsd(df)
+    
+    return dsd
+
+
+'''
+### TEST
+
+
+dsd = main()
+
+print(tm.get_parents_names(dsd['Motpart'].members['N1222']))
+
+sys.exit()
+'''
