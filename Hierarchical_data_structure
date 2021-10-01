@@ -1,0 +1,171 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Sep  8 16:08:57 2021
+
+@author: SCBOLOH
+"""
+
+#Den här modulen tillhandahåller klassdefinitioner som används för att representera hierarkiska metadata i träd av arbiträrt djup, 
+#samt extrahera permutationer av föräldrar till noder på valfri position i dessa träd
+
+
+import sys
+
+class tree_node:
+    #Klass för att hålla en arbiträr nod i ett träd.
+    
+    def __init__(self, name):
+        
+        self.parents = []
+        self.children = []
+        self.name = name
+    
+    
+    def add_child(self, argchild):
+        
+        self.children.append(argchild)
+        argchild.parents.append(self) 
+    
+    def add_parent(self, parent):
+        
+        self.parents.append(parent)
+        parent.children.append(self)
+    
+    
+    def isroot(self):
+        
+        return len(self.parents) == 0
+    
+    
+    def isleaf(self):
+        
+        return len(self.children) == 0
+
+
+class tree:
+    #Struktur för att hålla ett träd, bestående av tree_nodes. Tänkt att svara mot en dimension i FMR:s struktur
+    
+    def __init__(self, name):
+        
+        self.name = name
+        self.members = {}
+    
+    
+    def add_member(self, tree_node):
+        
+        self.members[tree_node.name]=tree_node
+
+
+def get_parents_names(tree_node):
+#Returnera en lista över namnet på noden, samt eventuella (unika) föräldrar till noden
+    
+    if tree_node.isroot():
+        
+        return [tree_node.name]
+    
+    else:
+        
+        parents = []
+        
+        for parent in tree_node.parents:
+            
+            if len(parents)==0:
+                    
+                parents = get_parents_names(parent)
+            
+            else:
+                    
+                parents += get_parents_names(parent)
+            
+        return list(set([tree_node.name] + parents))
+
+
+def get_parents_nodes(tree_node):
+#Returnera en lista över noden samt eventuella föräldrar till noden (nod-objekt alltså)
+    
+    if tree_node.isroot():
+        
+        return [tree_node]
+    
+    else:
+        
+        parents = []
+        
+        for parent in tree_node.parents:
+            
+            if len(parents)==0:
+                
+                parents = get_parents_nodes(parent)
+            
+            else:
+                
+                parents += get_parents_nodes(parent)
+            
+        return [tree_node] + parents
+
+    
+def build_tree(root_node, tree):
+    #Bygg en träd-struktur givet en rot-nod och ett träd-objekt
+    #Ett träd är helt enkelt ett dictionary, där noders namn är nycklade till nod-objekten
+    
+    if root_node.isleaf():
+        
+        tree.add_member(root_node)
+    
+    else:
+        
+        tree.add_member(root_node)
+        
+        for child in root_node.children:
+            
+            build_tree(child, tree)
+   
+
+def get_perms_of_lists(list_of_lists):
+    #Returnerar en lista med möjliga permutationer mellan medlemmar i en lista av listor.
+    
+    if len(list_of_lists) == 2:
+        
+        out = []
+        
+        for ind1 in range(len(list_of_lists[0])):
+            
+            for ind2 in range(len(list_of_lists[1])):
+                
+                out.append(list_of_lists[0][ind1]+'_'+list_of_lists[1][ind2])
+                
+        return out
+    
+    else:
+        sublist = [list_of_lists[0], list_of_lists[1]]
+        first = get_perms_of_lists(sublist)
+        return get_perms_of_lists([first] + list_of_lists[2:])
+
+'''
+#Test
+A = tree_node('tillgångar')
+A1 = tree_node('aktier')
+A2 = tree_node('andra tillgångar')
+
+N = tree_node('motparter')
+N1 = tree_node('svenska motparter')
+N2 = tree_node('utländska motparter')
+N11 = tree_node('svenska banker')
+N21 = tree_node('utländska banker')
+NYG = tree_node('banker')
+
+A.add_child(A1)
+A.add_child(A2)
+
+N.add_child(N1)
+N.add_child(N2)
+N.add_child(NYG)
+
+N1.add_child(N11)
+N2.add_child(N21)
+
+NYG.add_child(N11)
+NYG.add_child(N21)
+
+print(get_perms_of_lists([get_parents_names(N11), get_parents_names(A1)]))
+'''
