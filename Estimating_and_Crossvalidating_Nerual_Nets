@@ -8,6 +8,7 @@ Created on Tue Sep 15 15:44:32 2020
 #Input: Träningsdata transformerad till features
 #Output:Keras-modeller lagrade i .onnx-format
 
+import pyodbc
 import numpy as np
 import xlrd
 import pandas as pd
@@ -25,39 +26,16 @@ import keras2onnx
 
 '''
 
-def read_data(path):
-    
-    xlbk = xlrd.open_workbook(path)
-    
-    sh = xlbk.sheet_by_index(5)
-    
-    for i in range(1, sh.nrows):
-        
-        tlist = []
-        
-        for j in range(15,25):
-            
-            tlist.append(sh.cell_value(i,j))
-        
-        if i == 1:
-            
-            design = np.array((tlist))
-            
-            dep = np.array([sh.cell_value(i,25)])
-        
-        else:
-            
-            design = np.vstack([design,tlist])
-            
-            dep = np.vstack([dep, [sh.cell_value(i,25)]])
-    
-    return(design,dep)        
+#Data source edited out
 
+design_green = read_data(green_path)[0] #read_data (edited out) returns a tuple with (design data, dependent data)
+dep_green = read_data(green_path)[1] #read_data returns a tuple with (design data, dependent data)
 
-green_path = Path_edited
+'''
 
-design_green = read_data(green_path)[0]
-dep_green = read_data(green_path)[1]
+############################### ESTIMERING #################################
+
+'''
 
 fold = StratifiedKFold(shuffle=True, n_splits=5, random_state=None)
 
@@ -116,6 +94,11 @@ for train_indexes, test_indexes in fold.split(design_green, dep_green):
     NW_list.append(NW)
     
 
+'''
+
+############################### SAVE, STORE, MEASURE NETS FROM CV #################################
+
+'''
 scores_list = []
 
 for i in range(len(indep_test_list)):
